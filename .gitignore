@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+# the runtime trace dir (TRACE_DIR=./traces); docs/traces/ holds the curated, committed ones
+/traces/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+dist/
+build/

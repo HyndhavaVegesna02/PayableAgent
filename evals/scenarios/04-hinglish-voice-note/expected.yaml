@@ -1,0 +1,34 @@
+name: 04-hinglish-voice-note
+title: Hinglish voice note saying "dedh lakh"
+passes_when: Amount extracted as ₹1,50,000 and shown with the transcript
+steps:
+  - upload: {file: voice-note-sharma.wav, kind: voice}   # machine-spoken (scripts/make_voice_fixture.ps1)
+  - confirm_waiting:                                    # the owner confirms it, with the transcript beside it,
+      fill: {party: Sharma Packaging, amount: "1,50,000", due_date: "2026-11-05"}
+                                                          # typing what was said into any field the page marks
+expect:
+  - id: missing-due-date-flagged-not-guessed
+    component: extract
+    sql: SELECT json_extract(checks_json, '$.dates') FROM candidate ORDER BY id LIMIT 1
+    equals: "failed: no due date was given: fill it in"   # "paanch November" gives no year: never guessed
+  - id: bill-due-as-the-owner-said
+    component: validate
+    sql: SELECT due_date FROM payable WHERE amount_paise = 15000000
+    equals: "2026-11-05"
+  - id: amount-is-150000
+    component: extract
+    sql: SELECT json_extract(payload_json, '$.record.amount_paise') FROM candidate ORDER BY id LIMIT 1
+    equals: 15000000
+  - id: transcript-kept-for-the-owner
+    component: extract
+    sql: SELECT instr(lower(json_extract(payload_json, '$.extract.transcript')), 'dedh lakh') > 0 FROM candidate ORDER BY id LIMIT 1
+    equals: 1
+  - id: amount-checked-against-the-words
+    component: validate
+    sql: SELECT json_extract(checks_json, '$.amount') FROM candidate ORDER BY id LIMIT 1
+    equals: passed
+
+outcome:
+  - id: bill-150000-recorded
+    sql: SELECT COUNT(*) FROM payable p JOIN party pt ON pt.id = p.party_id WHERE p.amount_paise = 15000000 AND pt.name LIKE 'Sharma Packaging%'
+    equals: 1

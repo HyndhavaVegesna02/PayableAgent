@@ -1,0 +1,39 @@
+name: 02-password-protected-statement
+title: Password-protected statement PDF
+passes_when: Unlocked, rows extracted, statement arithmetic passes
+steps:
+  - at: "2026-10-14T09:00"
+  - deliver: [10-statement-hdfc-locked.eml]
+  - poll: true                                      # the PDF is locked: the owner is asked for its password
+  - unlock: {password: "SPW-4821-oct"}              # typed once by the owner (scripts/make_fixtures.py); never stored
+expect:
+  - id: sorted-as-statement
+    component: sort
+    sql: SELECT doc_type FROM source_document ORDER BY id LIMIT 1
+    equals: statement
+  - id: rows-read
+    component: extract
+    sql: SELECT COUNT(*) FROM bank_txn
+    equals: 3
+  - id: statement-arithmetic-passes
+    component: validate
+    sql: SELECT json_extract(checks_json, '$.statement_arithmetic') FROM candidate WHERE record_type = 'statement'
+    equals: passed
+  - id: ledger-agrees-with-the-bank
+    component: reconcile
+    sql: SELECT reported_balance_paise || ' ' || drift_status FROM bank_account WHERE id = 1
+    equals: "47241000 OK"
+  - id: path-budget-steps   # path budget: all cases within 20 agent steps; the committed live runs used at most 16 (2026-10-04-live-baseline, the exception job's calls); applies live too
+    component: agent
+    level: trajectory
+    sql: SELECT COALESCE(SUM(json_extract(state_json, '$.steps_total')), 0) <= 20 FROM agent_case
+    equals: 1
+  - id: path-budget-refused   # path budget: at most 3 calls code refused (an unknown tool, bad arguments, a repeat, a final answer), counted from the notes code writes, never the model's own words; applies live too
+    component: agent
+    level: trajectory
+    sql: "SELECT (SELECT COUNT(*) FROM agent_case c, json_each(c.state_json, '$.notes') n WHERE n.value GLOB 'final answer refused by code*' OR n.value GLOB 'step [0-9]*: refused unknown tool *' OR n.value GLOB 'step [0-9]*: refused [a-z]*_[a-z]*: *') + (SELECT COUNT(*) FROM agent_case c, json_each(c.state_json, '$.findings') f WHERE json_extract(f.value, '$.lines[0]') GLOB 'refused*') <= 3"
+    equals: 1
+outcome:
+  - id: three-statement-rows-recorded
+    sql: SELECT COUNT(*) FROM bank_txn
+    equals: 3

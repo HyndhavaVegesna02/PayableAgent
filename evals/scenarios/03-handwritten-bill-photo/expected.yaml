@@ -1,0 +1,34 @@
+name: 03-handwritten-bill-photo
+title: Handwritten bill photo
+passes_when: Fields extracted; GSTIN and totals checked
+steps:
+  - at: "2026-10-14T12:00"
+  - upload: {file: handwritten-bill-ganesh.png, kind: photo}   # by the helper, on /add
+  - confirm_waiting:                                           # the owner confirms it, typing what the bill
+      fill: {party: Shree Ganesh Hardware, amount: "12,390", due_date: "2026-10-24"}   # says into any field marked
+expect:
+  - id: sorted-as-invoice
+    component: sort
+    sql: SELECT doc_type FROM source_document ORDER BY id LIMIT 1
+    equals: invoice
+  - id: fields-read
+    component: extract
+    sql: SELECT json_extract(payload_json, '$.record.invoice_number') || ' ' || json_extract(payload_json, '$.record.amount_paise') || ' ' || json_extract(payload_json, '$.record.party') || ' ' || json_extract(payload_json, '$.record.due_date') FROM candidate ORDER BY id LIMIT 1
+    equals: "418 1239000 Shree Ganesh Hardware 2026-10-24"   # as read (the candidate): the owner's typing can't hide a misread
+  - id: gstin-checked
+    component: validate
+    sql: SELECT json_extract(checks_json, '$.gstin') FROM candidate ORDER BY id LIMIT 1
+    equals: passed
+  - id: totals-checked
+    component: validate
+    sql: SELECT json_extract(checks_json, '$.invoice_arithmetic') FROM candidate ORDER BY id LIMIT 1
+    equals: passed
+  - id: bill-in-the-plan
+    component: planner
+    sql: SELECT COUNT(*) FROM plan_line l JOIN plan_run r ON r.id = l.plan_run_id JOIN payable p ON p.id = l.payable_id WHERE r.is_current = 1 AND p.invoice_number = '418'
+    equals: 1
+
+outcome:
+  - id: bill-418-recorded-once
+    sql: SELECT COUNT(*) FROM payable p JOIN party pt ON pt.id = p.party_id WHERE p.invoice_number = '418' AND p.amount_paise = 1239000 AND pt.name LIKE 'Shree Ganesh%'
+    equals: 1

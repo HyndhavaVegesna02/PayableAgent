@@ -1,0 +1,73 @@
+"""Accounts: GET /accounts, POST /accounts/{id}/confirm-balance,
+POST /documents/{id}/unlock and POST /parties/{id}/bank-change (TDD Part 2, "HTTP routes")."""
+
+from __future__ import annotations
+
+import sqlite3
+
+from fastapi import APIRouter, Depends, Request
+
+from app.ingest.store import DocumentStore
+from app.web import actions, repo
+from app.web.app import render
+from app.web.auth import User, db, owner_only
+from app.web.routes._common import done, form_values, int_or_none
+from app.web.routes.attention import attention_page
+
+router = APIRouter()
+
+
+def accounts_page(request: Request, conn: sqlite3.Connection, user: User, *, errors: dict | None = None,
+                  status: int = 200):
+    return render(request, "accounts.html", {"accounts": repo.accounts(conn, user.business_id),
+                                             "errors": errors or {}}, status=status)
+
+
+@router.get("/accounts")
+def accounts(request: Request, user: User = Depends(owner_only), conn: sqlite3.Connection = Depends(db)):
+    return accounts_page(request, conn, user)
+
+
+@router.post("/accounts/{account_id}/confirm-balance")
+async def confirm_balance(account_id: int, request: Request, user: User = Depends(owner_only),
+                          conn: sqlite3.Connection = Depends(db)):
+    values = await form_values(request)
+    try:
+        actions.confirm_balance(conn, user, account_id, str(values.get("amount", "")),
+                                clock=request.app.state.clock)
+    except actions.FieldErrors as e:
+        return accounts_page(request, conn, user, errors={account_id: e.errors["amount"]}, status=422)
+    return done(request, "/accounts")
+
+
+@router.post("/documents/{document_id}/unlock")
+async def unlock(document_id: int, request: Request, user: User = Depends(owner_only),
+                 conn: sqlite3.Connection = Depends(db)):
+    # The password is used once, in memory: it is never logged, traced, stored or
+    # echoed back into a form (TDD Part 1).
+    if repo.document(conn, user.business_id, document_id)["status"] != "LOCKED":
+        raise actions.Refused("There is nothing to unlock: this document is not a locked statement.")
+    values = await form_values(request)
+    try:
+        actions.unlock_document(conn, user, document_id, str(values.get("password") or ""),
+                                DocumentStore(request.app.state.settings.data_dir, request.app.state.settings.fernet_key),
+                                clock=request.app.state.clock)
+    except actions.WrongPassword:
+        return attention_page(request, conn, user, message="That password did not open the PDF. Try again.",
+                              status=422)
+    return done(request, "/attention")
+
+
+@router.post("/parties/{party_id}/bank-change")
+async def bank_change(party_id: int, request: Request, user: User = Depends(owner_only),
+                      conn: sqlite3.Connection = Depends(db)):
+    if repo.party(conn, user.business_id, party_id)["bank_status"] != "change_pending":
+        raise actions.Refused("There is no pending bank change for this vendor.")
+    values = await form_values(request)
+    decision = values.get("decision")
+    candidate_id = int_or_none(values.get("candidate_id"))
+    if decision not in ("approve", "reject") or candidate_id is None:
+        raise actions.Refused("Choose approve or reject for this bank change.")
+    actions.decide_bank_change(conn, user, party_id, candidate_id, decision == "approve",
+                               clock=request.app.state.clock)
+    return done(request, "/attention")

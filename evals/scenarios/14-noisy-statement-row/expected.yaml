@@ -1,0 +1,40 @@
+name: 14-noisy-statement-row
+title: A statement row with a noisy narration (fixture-only, not yet run live)
+passes_when: The payment is recorded once; code doesn't guess the bill from a noisy narration, so the bill goes to review and the owner is asked; it is never paid twice
+live: false   # a harder variant: scored in fixture mode, not yet run on Gemini
+steps:
+  - monday_plan: true                  # PAPER-001: PAY on Mon 12 Oct
+  - approve: true                      # PAYMENT_EXPECTED
+  - at: "2026-10-13T08:00"
+  - deliver: [44-statement-hdfc-noisy.eml]   # one row, PAPER-001's payment under a noisy narration
+  - poll: true
+expect:
+  - id: read-as-a-statement
+    component: sort
+    sql: SELECT doc_type FROM source_document WHERE external_ref = '<fixture-44@example.test>'
+    equals: statement
+  - id: one-row-recorded
+    component: validate
+    sql: SELECT COUNT(*) FROM bank_txn
+    equals: 1
+  - id: owner-asked-which-bill-it-paid      # the narration names no payee code can trust: no guess
+    component: reconcile
+    sql: SELECT (SELECT status FROM payable WHERE invoice_number = 'PAPER-001') || ' ' || (SELECT COUNT(*) FROM owner_question WHERE kind = 'explain_txn' AND status = 'OPEN')
+    equals: REVIEW 1
+  - id: path-budget-steps   # path budget: its one case within 8 agent steps, half the most that 02's two unexplained-debit cases used together live (16); fixture-only, so set again from its first live run; applies live too
+    component: agent
+    level: trajectory
+    sql: SELECT COALESCE(SUM(json_extract(state_json, '$.steps_total')), 0) <= 8 FROM agent_case
+    equals: 1
+  - id: path-budget-refused   # path budget: at most 3 calls code refused (an unknown tool, bad arguments, a repeat, a final answer), counted from the notes code writes, never the model's own words; applies live too
+    component: agent
+    level: trajectory
+    sql: "SELECT (SELECT COUNT(*) FROM agent_case c, json_each(c.state_json, '$.notes') n WHERE n.value GLOB 'final answer refused by code*' OR n.value GLOB 'step [0-9]*: refused unknown tool *' OR n.value GLOB 'step [0-9]*: refused [a-z]*_[a-z]*: *') + (SELECT COUNT(*) FROM agent_case c, json_each(c.state_json, '$.findings') f WHERE json_extract(f.value, '$.lines[0]') GLOB 'refused*') <= 3"
+    equals: 1
+outcome:
+  - id: payment-recorded-once
+    sql: SELECT COUNT(*) FROM bank_txn WHERE amount_paise = 18000000
+    equals: 1
+  - id: paper-bill-paid-or-in-review   # the business result: one bill, paid or waiting for the owner, never a second payment
+    sql: SELECT COUNT(*) FROM payable WHERE invoice_number = 'PAPER-001' AND status IN ('PAID', 'REVIEW')
+    equals: 1
