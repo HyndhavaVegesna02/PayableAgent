@@ -1,4 +1,4 @@
-"""Batch-0 review (major): schema.sql's `PRAGMA foreign_keys = ON` only ever
+"""A review finding: schema.sql's `PRAGMA foreign_keys = ON` only ever
 ran on migrate.py's own one-off connection during migration -- SQLite does
 not persist that pragma in the database file, so every other connection
 (seed.py's writes, main.py's health check, any future write path) silently

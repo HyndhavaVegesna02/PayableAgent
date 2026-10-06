@@ -8,7 +8,7 @@ mark_failed and claim_one's return value both rely on column-name access.
 
 Time is read through the Clock interface (app/clock.py), never
 datetime.now() directly, so run_after/now are injectable in tests and the
-scenario suite can replay a fortnight in seconds (caught in batch-0 review:
+scenario suite can replay a fortnight in seconds (caught in a code review:
 an earlier version called datetime.now(UTC) here directly)."""
 
 from __future__ import annotations

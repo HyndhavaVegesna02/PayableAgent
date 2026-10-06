@@ -31,7 +31,7 @@ def test_every_fixture_mode_report_and_derived_page_is_found_and_live_ones_are_n
     kinds = {kind for kind, _ in found}
     assert kinds == {"suite", "ablation", "workflow", "combined", "ablation-combined"}  # derived pages re-derived
     assert all("live" not in p or k in ("combined", "ablation-combined") for k, p in found)
-    assert any(p.endswith("fixtures-regress-max-steps/report.json") for _, p in found)
+    assert ("suite", "3-improvement-and-regression/regression-caught/report.json") in found
 
 
 def test_the_make_target_runs_it_outside_make_test():

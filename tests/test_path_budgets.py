@@ -48,7 +48,7 @@ def test_a_budget_fails_when_the_agent_wastes_calls():
 
 
 def test_the_refusal_budget_counts_code_s_refusals_never_the_model_s_words():
-    """Review round 1: the budget counted the word "refused" anywhere, the model's own notes and summary
+    """The budget once counted the word "refused" anywhere, the model's own notes and summary
     included. It counts only what code writes: its refusal notes and a tool's refused result."""
     sqls = {scenario.load(n).expect[[e.id for e in scenario.load(n).expect].index("path-budget-refused")].sql
             for n in AGENT_SCENARIOS}
@@ -76,16 +76,16 @@ def test_the_refusal_budget_counts_code_s_refusals_never_the_model_s_words():
 
 
 def test_every_live_budget_holds_the_committed_live_runs_that_passed():
-    """Review round 1: 02's first budget failed every committed live run that passed. Each budget is set from
+    """02's first budget failed every committed live run that passed. Each budget is set from
     the agent steps (the exception job's calls) of the committed live runs, so none fails a known-good one."""
     import re
     from pathlib import Path
 
     root = Path(runner.ROOT) / "docs" / "evals"
     used: dict[str, int] = {}
-    for f in root.glob("2026-10-04-live-*/report.json"):
+    for f in [*root.glob("raw-runs/*/report.json"), *root.glob("3-improvement-and-regression/*/report.json")]:
         rep = json.loads(f.read_text(encoding="utf-8"))
-        if not isinstance(rep.get("runs"), list):
+        if rep["meta"].get("mode") != "live" or not isinstance(rep.get("runs"), list):
             continue  # an ablation or combined page: no per-run metrics
         for r in rep["runs"]:
             if r["status"] == "PASSED" and r["scenario"] in AGENT_SCENARIOS:

@@ -10,8 +10,13 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")), ROOT / "docs" / "evals" / "README.md",
-         ROOT / "docs" / "traces" / "README.md"]
+EVALS = ROOT / "docs" / "evals"
+# The eval READMEs quote headline figures, each one read from its report.json by `quoted()` below.
+# The pages of the layout: "Start here", each numbered folder's README and raw-runs/'s. A note kept inside a run's
+# own folder (beside its report.json, or in its traces/) is part of that run's record, written with it and moved
+# with it (live-pilot-after's note only had its sibling paths updated); test_the_only_other_readmes_are_notes_kept_with_their_runs keeps that list honest.
+EVAL_READMES = [EVALS / "README.md", *sorted(EVALS.glob("[0-9]-*/README.md")), EVALS / "raw-runs" / "README.md"]
+PAGES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")), ROOT / "docs" / "traces" / "README.md"]
 
 
 def test_the_permission_model_tables_are_the_codes_own():
@@ -48,9 +53,10 @@ def test_the_official_live_traces_are_the_reports_own_and_show_what_their_walkth
     """The live pilot's job 11 is the official failure, the AFTER's job 11 the official success."""
     import json
 
-    pairs = {"live-failure.jsonl": "2026-10-04-live-pilot", "live-success.jsonl": "2026-10-04-live-pilot-after"}
+    pairs = {"live-failure.jsonl": "live-pilot-before", "live-success.jsonl": "live-pilot-after"}
     for name, report in pairs.items():
-        source = ROOT / "docs" / "evals" / report / "traces" / "07-missed-alert-causes-drift-run1" / "2026-10-15"
+        source = EVALS / "3-improvement-and-regression" / report / "traces" / "07-missed-alert-causes-drift-run1" / \
+            "2026-10-15"
         assert (ROOT / "docs" / "traces" / name).read_bytes() == (source / "job-11-attempt-1.jsonl").read_bytes()
 
     def line(name, n):
@@ -98,7 +104,7 @@ def _missing(page: Path) -> list[str]:
     return missing
 
 
-@pytest.mark.parametrize("page", PAGES, ids=lambda p: p.relative_to(ROOT).as_posix())
+@pytest.mark.parametrize("page", PAGES + EVAL_READMES, ids=lambda p: p.relative_to(ROOT).as_posix())
 def test_every_path_link_and_symbol_a_page_cites_exists(page):
     assert _missing(page) == []
 
@@ -159,9 +165,279 @@ def test_the_readme_names_every_app_module_app_validate_imports():
 
 def test_the_eval_readme_tells_the_live_runs_in_order():
     """The pilot's failure, the trace, the root cause, the fix, the AFTER."""
-    text = (ROOT / "docs" / "evals" / "README.md").read_text(encoding="utf-8")
-    story = text[text.index("## The live runs, in order"):text.index("## Full-workflow runs")]
-    marks = ["2026-10-04-live-pilot/`", "2026-10-04-live-pilot/traces/", "root causes",
-             "2026-10-04-live-pilot-after/", "2026-10-04-live-baseline/"]
+    text = (EVALS / "3-improvement-and-regression" / "README.md").read_text(encoding="utf-8")
+    story = text[text.index("## The live runs, in order"):text.index("## The regression, told straight (D23)")]
+    marks = ["(live-pilot-before/report.md)", "(live-pilot-before/traces/README.md)", "root causes", "The fixes",
+             "(live-pilot-after/README.md)", "../raw-runs/2026-10-04-live-baseline/"]
     at = [story.index(m) for m in marks]
     assert at == sorted(at), dict(zip(marks, at))
+
+
+# --- every relative link resolves, its anchor included ---------------------------------------------
+
+_MD_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
+_FENCE = re.compile(r"^```.*?^```", re.M | re.S)
+
+
+def anchors(page: Path) -> set[str]:
+    """The anchors GitHub gives a page's headings: lower case, punctuation dropped, spaces as hyphens."""
+    text = _FENCE.sub("", page.read_text(encoding="utf-8"))
+    return {re.sub(r"[^\w\- ]", "", h.strip().lower()).replace(" ", "-")
+            for h in re.findall(r"^#{1,6}\s+(.+?)\s*#*$", text, re.M)}
+
+
+def dead_links(page: Path) -> list[str]:
+    dead = []
+    for target in _MD_LINK.findall(_FENCE.sub("", page.read_text(encoding="utf-8"))):
+        if "://" in target or target.startswith("mailto:"):
+            continue
+        path, _, anchor = target.partition("#")
+        found = page if not path else (page.parent / path)
+        if not found.exists():
+            dead.append(target)
+        elif anchor and found.suffix == ".md" and anchor not in anchors(found):
+            dead.append(target)
+    return dead
+
+
+MARKDOWN = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+
+
+@pytest.mark.parametrize("page", MARKDOWN, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_every_relative_link_resolves_to_a_file_and_its_anchor(page):
+    assert dead_links(page) == []
+
+
+def test_the_link_check_sees_a_dead_file_and_a_dead_anchor(tmp_path):
+    (tmp_path / "other.md").write_text("# The regression, told straight (D23)\n## Full-workflow runs\n",
+                                       encoding="utf-8")
+    page = tmp_path / "page.md"
+    page.write_text("[a](other.md#the-regression-told-straight-d23) [b](other.md#full-workflow-runs) "
+                    "[c](gone.md) [d](other.md#no-such-heading) [e](https://example.com/x) [f](#here)\n# Here\n"
+                    "```\n[g](inside-a-fence.md)\n```\n", encoding="utf-8")
+    assert dead_links(page) == ["gone.md", "other.md#no-such-heading"]
+
+
+# --- the figures the eval READMEs quote are their reports' own (D25) -------------------------------
+
+_WORD = (r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen"
+         r"|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred"
+         r"|dozen|thousand)")
+_COUNTED = (r"(?:runs?|scenarios?|invocations?|calls?|checks?|failures?|knock-?outs?|harness(?:es)?|points?|pts"
+            r"|times|steps?|parts?|cells?|repeats?|trials?|occasions?|errored|passed|failed|µUSD|micro-USD|percent)")
+# A figure: any run of digits; or a number word counting something, in brackets, or after "the last" and the
+# like; or once or twice as a count (not "once the fixes were in").
+_EVAL_FIGURE = re.compile(
+    r"\d+(?:[.,]\d+)*"
+    rf"|\b{_WORD}(?:[\s-]+[\w'’]+){{0,2}}?[\s-]+{_COUNTED}\b"
+    rf"|\b{_WORD}\s*(?:/|of|out of)\s*(?:the\s+)?(?:\d|{_WORD})"
+    rf"|\({_WORD}\)|\b(?:the last|the first|these|those|all|both)\s+{_WORD}\b"
+    r"|\b(?:once|twice|thrice)\b(?!\s+(?:the|that|a|an|it|its|this|these|those|they|we)\b)"
+    rf"|\b(?!one\b){_WORD}\b|\bone\s+(?:each|apiece)\b|\ba (?:third|quarter|fifth|tenth)\b",  # "one" names things
+    re.I)
+# What has digits but names something: a scenario, a commit, a date or year, one of the layout's folders, the
+# suite's shape (11x5), an HTTP status the guard records, a numbered heading or list item, an amount of rupees,
+# a decision label; and anything in backticks or a link's target.
+_ID = r"(?:0\d|1[0-4])"  # a scenario's number
+_CODE = r"(?:402|403|429)"  # an HTTP status the budget guard records
+_MONTH = r"(?:Oct|October|Nov|November)"
+_NAMES = re.compile(
+    r"`[^`]*`|\]\([^)]*\)"
+    rf"|\b(?i:scenarios?)\s+{_ID}(?:'s)?(?:\s*(?:,|and|to|or)\s*{_ID})*\b"
+    rf"|(?<![.\d])\b0\d(?:\s*(?:,|and|to|or)\s*{_ID})*\b"
+    r"|\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"
+    r"|\b\d{4}-\d\d-\d\d\S*"
+    rf"|\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{{1,2}}(?: {_MONTH} 20\d\d)?\b|\b\d{{1,2}} {_MONTH}(?: 20\d\d)?\b"
+    r"|\b[1-4]-(?:eval-report|harness-ablation|improvement-and-regression|end-to-end-workflows)\b"
+    r"|\b(?:11x5|14x5)\b"
+    rf"|\({_CODE}\)|(?<=a ){_CODE}\b(?![\s-]+{_COUNTED})|(?<='s ){_CODE}\b(?![\s-]+{_COUNTED})"
+    r"|^\s*#*\s*[1-9]\.(?=\s)|₹[\d,]+|\bD\d\d\b", re.M)
+
+
+def loose_figures(text: str, quotes) -> list[str]:
+    """The figures a page types outside every derived quote, once the names that look like numbers are set
+    aside."""
+    spans = [(m.start(), m.end()) for q in quotes for m in re.finditer(re.escape(q), text)]
+    blank = _NAMES.sub(lambda m: " " * len(m.group(0)), text)
+    return [m.group(0) for m in [*_FIGURE.finditer(blank), *_EVAL_FIGURE.finditer(blank)]
+            if not any(a <= m.start() and m.end() <= b for a, b in spans)]
+
+
+def _report(folder: str) -> dict:
+    import json
+
+    return json.loads((EVALS / folder / "report.json").read_text(encoding="utf-8"))
+
+
+def quoted() -> dict[str, str]:
+    """Every figure the eval READMEs quote, as words around it, derived here from the report it comes from.
+    A README may quote a figure only inside one of these."""
+    import json
+
+    def finished(row_or_totals: dict) -> int:
+        return row_or_totals["runs"] - row_or_totals["errored"]
+
+    def pts(x: float) -> str:
+        return f"{x * 100:.0f}"
+
+    q = {}
+    live = _report("1-eval-report/live-11x5")
+    t, cov = live["totals"], live["coverage"]
+    (per,) = cov["runs_per_scenario"]
+    q["live"] = f"{t['passed']} of {finished(t)} live runs passed ({t['scenarios']} scenarios × {per} runs)"
+    first = {}
+    for row in live["scenarios"]:
+        tried = cov["replaced"].get(row["scenario"]) or [
+            {"passed": row["passed"], "finished": finished(row), "errored": row["errored"]}]
+        first[row["scenario"]] = next(x for x in tried if x["finished"])
+    clean = sum(x["passed"] == x["finished"] == per for x in first.values())
+    q["first"] = (f"{clean} of {len(first)} scenarios passed {per}/{per} in the first invocation that finished "
+                  "their runs")
+    h04 = cov["replaced"]["04-hinglish-voice-note"]
+    said = [f"{x['passed']}/{x['finished']}" for x in h04]
+    q["s04"] = f"scenario 04 failed ({said[0]}, then {said[1]}), was fixed, and passed {said[2]} on rerun"
+    commits = {s["report"]: s["commit"] for s in live["meta"]["sources"]}
+    q["s04-commits"] = ", ".join(f"{s} at {commits[x['source']]}" for s, x in zip(said, h04))
+
+    off = _report("1-eval-report/offline-14x5")
+    q["offline"] = (f"{off['totals']['passed']} of {finished(off['totals'])} offline runs passed "
+                    f"({off['totals']['scenarios']} scenarios × {off['meta']['runs_per_scenario']} runs)")
+
+    abl = _report("2-harness-ablation/live")
+    q["ablation"] = (f"{pts(abl['full_vs_bare'])} points of outcome success, paired on the "
+                     f"{abl['paired_on']['bare']} scenarios both scored")
+    q["full-bare"] = (f"full {pts(abl['harnesses']['full']['success'])}%, bare "
+                      f"{pts(abl['harnesses']['bare']['success'])}%")
+    top = abl["earned_most"]
+    (lost,) = {len(abl["lost"][h]) for h in top}
+    assert {n for h in top for n in abl["harnesses"][h]["runs_per_cell"].values()} == {1}  # what "once" says
+    full = abl["cells"]["full"]
+    for h in top:  # and the full system met every run where it was paired, so a point drop is a share of scenarios
+        assert all(full[s]["met"] == full[s]["scored"] for s, c in abl["cells"][h].items() if c and c["scored"])
+    q["earned"] = (f"{' and '.join(top)} cost the most: {pts(abl['drops'][top[0]])} points each, which at one run "
+                   f"per scenario is {lost} scenario each")
+    (scored,) = set(abl["not_measured"].values())
+    q["unmeasured"] = (f"{' and '.join(sorted(abl['not_measured']))}: not measured live ({scored}/"
+                       f"{len(abl['scenarios'])} scenarios)")
+
+    pilot, after = _report("3-improvement-and-regression/live-pilot-before"), \
+        _report("3-improvement-and-regression/live-pilot-after")
+    q["pilot"] = (f"passed {pilot['totals']['scenarios_all_runs_passed']} of {pilot['totals']['scenarios']} "
+                  "scenarios")
+    q["after"] = f"{after['totals']['passed']} of {finished(after['totals'])} runs passed"
+
+    reg = _report("3-improvement-and-regression/regression-caught")
+    (r07,) = [r for r in reg["scenarios"] if r["scenario"] == "07-missed-alert-causes-drift"]
+    q["regression"] = (f"its path check failed in {r07['path'][1] - r07['path'][0]} of {r07['path'][1]} runs of "
+                       f"scenario 07, while {reg['totals']['passed']} of {finished(reg['totals'])} finished runs "
+                       "still passed")
+
+    q["live-invocations"] = f"generated from {len(live['meta']['sources'])} invocations"
+    q["ablation-invocations"] = f"generated from {len(abl['meta']['sources'])} invocations"
+    q["harder"] = f"{off['totals']['scenarios'] - t['scenarios']} harder fixture-only scenarios"
+    offline = _report("2-harness-ablation/offline")
+    q["knock-outs"] = f"{len([h for h in offline['harnesses'] if h not in ('full', 'bare')])} knock-outs"
+    cells = abl["harnesses"]["full"]["runs_per_cell"]
+    usual = max(set(cells.values()), key=list(cells.values()).count)
+    odd = ", ".join(f"{n} on {s}" for s, n in cells.items() if n != usual)
+    q["full-runs"] = f"the full system ran {usual} runs per scenario ({odd})"
+    (once,) = {n for h, x in abl["harnesses"].items() if h != "full" for n in x["runs_per_cell"].values()}
+    q["one-run"] = f"the bare harness and the knock-outs ran {once} run per scenario"
+    degraded = _report("3-improvement-and-regression/live-prompt-degraded")
+    ids = [r["scenario"][:2] for r in degraded["scenarios"]]
+    q["degraded"] = (f"live on scenarios {', '.join(ids[:-1])} and {ids[-1]}, "
+                     f"{degraded['meta']['runs_per_scenario']} run each")
+    missed = [r["scenario"][:2] for r in pilot["scenarios"] if r["passed"] < finished(r)]
+    q["pilot-missed"] = f"it missed {' and '.join(missed)}"
+    for h, lost in abl["lost"].items():
+        if lost and h != "bare":  # the knock-outs; bare's loss is the headline
+            q[f"lost-{h}"] = f"{h} lost scenario {' and '.join(s[:2] for s in lost)}"
+    clean = sorted(h for h, d in abl["drops"].items() if d == 0 and not abl["lost"][h]
+                   and len(abl["harnesses"][h]["scenarios_scored"]) == len(abl["scenarios"]))
+    q["lost-nothing"] = f"{' and '.join(clean)}, scored on every scenario, lost nothing"
+    import yaml
+
+    steps = [yaml.safe_load((ROOT / f).read_text(encoding="utf-8"))["escalation"]["max_steps"]
+             for f in ("config.yaml", "evals/variants/regress-max-steps.yaml")]
+    q["step-cap"] = f"the agent's step cap cut from {steps[0]} to {steps[1]}"
+    offline_runs = [json.loads(f.read_text(encoding="utf-8")) for f in (EVALS / "4-end-to-end-workflows").glob(
+        "workflow-*.json") if not f.stem.endswith("-live")]
+    assert len(offline_runs) == 2 and all(c["ok"] for w in offline_runs for r in w["repeats"] for s in r["steps"]
+                                          for c in s["checks"])
+    q["offline-workflows"] = "offline, every check passes"
+
+    failed = []
+    for run in ("A", "B"):
+        data = json.loads((EVALS / "4-end-to-end-workflows" / f"workflow-{run}-2026-10-04-live.json").read_text(
+            encoding="utf-8"))
+        failed.append([c["id"] for r in data["repeats"] for s in r["steps"] for c in s["checks"] if not c["ok"]])
+    (n,) = {len(f) for f in failed}
+    q["workflows"] = (f"live, A and B each left {n} failed check (`{failed[0][0]}` in A, `{failed[1][0]}` in B)"
+                      if n == 1 else f"live, A and B each left {n} failed checks")
+    return q
+
+
+@pytest.mark.parametrize("page", EVAL_READMES, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_every_figure_an_eval_readme_quotes_is_read_from_its_report(page):
+    assert loose_figures(page.read_text(encoding="utf-8"), quoted().values()) == []
+
+
+def test_every_derived_quote_is_on_an_eval_readme():
+    text = "\n".join(p.read_text(encoding="utf-8") for p in EVAL_READMES)
+    assert [k for k, q in quoted().items() if q not in text] == []
+
+
+def test_the_live_suite_headline_never_appears_without_scenario_04s_story():
+    """Wherever a page shows the live suite's total, the sentence on scenario 04 (failed, fixed,
+    passed on rerun) is on the same line; on the combined page, its Coverage line comes right before."""
+    q = quoted()
+    shown = 0
+    for page in sorted(set(EVAL_READMES) | set(MARKDOWN)):
+        for line in page.read_text(encoding="utf-8").splitlines():
+            if q["live"] in line:
+                shown += 1
+                assert q["s04"] in line, (page.name, line)
+    assert shown >= 2
+    md = (EVALS / "1-eval-report" / "live-11x5" / "report.md").read_text(encoding="utf-8").splitlines()
+    (at,) = [i for i, line in enumerate(md) if line.startswith("**Totals:**")]
+    h04 = _report("1-eval-report/live-11x5")["coverage"]["replaced"]["04-hinglish-voice-note"]
+    assert md[at - 2].startswith("**Coverage:**") and all(
+        f"{x['passed']}/{x['finished']} in `{x['source'].split('/')[-1]}`" in md[at - 2] for x in h04)
+
+
+def test_the_only_other_readmes_are_notes_kept_with_their_runs():
+    others = sorted(p.relative_to(EVALS).as_posix() for root in ("1-", "2-", "3-", "4-", "raw-runs")
+                    for p in EVALS.glob(f"{root}*/**/README.md") if p not in EVAL_READMES)
+    assert others == ["3-improvement-and-regression/live-pilot-after/README.md",
+                      "3-improvement-and-regression/live-pilot-before/traces/README.md"]
+    for note in others:
+        folder = (EVALS / note).parent
+        assert (folder / "report.json").exists() or folder.name == "traces" and (folder.parent / "report.json").exists()
+
+
+@pytest.mark.parametrize("typed", [
+    "The harness is worth eighty points.", "zero runs errored", "no_drift_rule cost a 9-point drop",
+    "the full system's 3-run cells", "a 1-scenario loss", "(416)", "scored 20", "5 trials", "on 16 occasions",
+    "an 11 × 5 suite", "passed 55", "cut from 6 to 2", "the due date's 5",
+    "2048 calls", "spent 2050 µUSD", "2026 runs", "a 12x5 suite", "scenarios 05 and 55", "scenario 04 or 55",
+    "a 403 runs", "the cost was\n80. Then", "lost one each", "nine vendors", "Of the eleven, ten",
+    "bare scored twenty.", "a third of the runs",
+    "55 of 55 live runs passed", "80 points", "4/5 then", "10 scenarios", "from 16 invocations",
+    "scored on 7 of the 11 scenarios", "416 calls", "an 80-point gap", "9 pts", "full 1.00 against bare",
+    "all 55 live runs passed", "passed in 10 out of 11", "sixteen invocations", "three runs each", "(eight)",
+    "the last four", "these three", "its two failures", "Two other checks", "one failed check", "ran once",
+    "twice on it", "five runs of each scenario", "with 2 steps"])
+def test_the_eval_figure_check_sees_a_typed_figure(typed):
+    """Each of these is a figure typed by hand."""
+    assert loose_figures(typed, []) != []
+
+
+@pytest.mark.parametrize("named", [
+    "scenario 11's second run", "scenarios 01, 07 and 08", "Scenarios 08 to 11, and 04 again", "On 07 the agent",
+    "commit 728046a and 3ad8e01", "Mon 12 to Sun 25 Oct 2026", "a 429 that", "Google's 429 was", "(402)",
+    "`2026-10-04-live-baseline`", "[1-eval-report/](1-eval-report/README.md)", "1. **The pilot",
+    "## 2. The harness", "reads ₹1,50,000.", "dedh lakh rupaye 5 November tak", "Sun 25 Oct 2026", "D23",
+    "[live-11x5/](live-11x5/report.md)", "the 11x5's invocations", "(a 429)", "4-end-to-end-workflows", "once that was fixed", "once the fixes were in",
+    "the 11x5", "one growing chat history", "half the scenarios"])
+def test_the_eval_figure_check_lets_names_through(named):
+    assert loose_figures(named, []) == []

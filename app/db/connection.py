@@ -5,7 +5,7 @@ SQLite does not persist `PRAGMA foreign_keys = ON` in the database file --
 it's a per-connection setting. schema.sql sets it during migration, but that
 only covers migrate.py's own connection; every other connection a caller
 opened with a bare sqlite3.connect() silently ran with FK enforcement off
-(found in batch-0 review: an orphan app_user row with a nonexistent
+(found in a code review: an orphan app_user row with a nonexistent
 business_id inserted without error). Every writer should open through this
 function instead of calling sqlite3.connect() directly."""
 

@@ -1,8 +1,8 @@
 # The AFTER: the pilot's two failures, rerun live after the fixes
 
 One live run of scenarios 04 and 07, with traces kept, once the fixes were in: a missing due date marked
-for the owner (scenario 04), and the fields named in the prompt and in every refusal (scenario 07). The BEFORE is `../2026-10-04-live-pilot/`, with its
-trace rerun in `../2026-10-04-live-pilot/traces/`. This report's header names its commit, prompt version
+for the owner (scenario 04), and the fields named in the prompt and in every refusal (scenario 07). The BEFORE is `../live-pilot-before/`, with its
+trace rerun in `../live-pilot-before/traces/`. This report's header names its commit, prompt version
 and cost.
 
 The traces were checked before commit. None of these appears in them:

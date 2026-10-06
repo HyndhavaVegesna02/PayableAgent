@@ -390,7 +390,7 @@ def test_the_debit_can_still_be_explained_after_the_agents_question_closed_its_c
 
 
 def test_marking_the_bill_paid_with_the_held_debit_also_settles_the_agents_question(web):
-    # Review round 1 (major): the sibling settle path, mark-paid, left the agent's question OPEN.
+    # The sibling settle path, mark-paid, left the agent's question OPEN.
     env, client, csrf = web
     twin, t, result = _twin_in_review(env)
     agent_q = _agent_asked(env, result.case_ids[0])

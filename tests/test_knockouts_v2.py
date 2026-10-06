@@ -68,7 +68,7 @@ def test_the_new_knock_outs_are_in_the_ablation():
 
 
 def test_offline_no_case_file_is_marked_context_only_and_left_out_of_the_comparison(tmp_path):
-    """Review round 1: offline, no_case_file's row is "context only", like a mechanics-only row: canned replies
+    """Offline, no_case_file's row is "context only", like a mechanics-only row: canned replies
     are scripted against the case file's text, so its drop is not ranked. A live ablation compares it."""
     import json
 
